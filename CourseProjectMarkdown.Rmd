@@ -1,0 +1,102 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Wesley Simons"
+date: "July 16, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Wesley Simons Practical Machine Learning Course Project
+
+###Loading the libraries and data. 
+First we will load the required libraries, and the data files from the local machine. 
+```{r libraries, results='hide', message=FALSE, warning=FALSE}
+library(caret)
+library(tidyverse)
+library(rattle)
+
+train.dat<-file.choose()
+test.dat<-file.choose()
+trainingSet<-read.csv(train.dat)
+testingSet<-read.csv(test.dat)
+```
+
+###Preparing the data sets for analysis. 
+Next we will create a data partition with the training set to build our model and test our prediction.
+```{r partition, results='hide', message=FALSE}
+set.seed(1234)
+inTrain<- createDataPartition(trainingSet$classe, p=.75, list=FALSE)
+wesTraining<-trainingSet[inTrain,]
+wesTesting<-trainingSet[-inTrain,]
+```
+
+After our partitions are created we need to clean the data. 
+```{r cleaning, results='hide'}
+#remove the first two columns as they are not related to our analysis. 
+wesTraining<-wesTraining[,-c(1:2)]
+#remove all columns with more than 50% N/A values. 
+na.names<-c(NULL)
+for(i in 1:length(wesTraining)) {
+  if(sum( is.na( wesTraining[, i] ) ) /nrow(wesTraining) >= .5) {
+    na.names<-c(na.names,i)
+  }
+}
+wesTraining<-wesTraining[,-na.names]
+#remove the variables with near zero variance
+nearzero<-nearZeroVar(wesTraining, saveMetrics = TRUE)
+wesTraining<-wesTraining[,nearzero$nzv==FALSE]
+#remove timestamp columns
+wesTraining<-wesTraining[,-c(1:4)]
+```
+In the final data preparation step we will need to make sure that all of our data sets share the same variables. 
+```{r match data sets}
+#make training and testing sets the same
+clean.names<-names(wesTraining)
+wesTesting<-wesTesting[clean.names]
+#make final testing set the same
+testingSet<-testingSet[clean.names[-53]]
+dim(wesTraining)
+dim(wesTesting)
+#the testingSet data.frame will have one less column as it does not contain the "classe" variable. 
+dim(testingSet)
+```
+
+###Building the Models
+####Decision Tree
+We will evaluate a few different models to try and find one that accurately predicts the classe (form break) outcome. We will start with using the rpart package to build a decision tree. 
+```{r rpart}
+modfit.rpart<-train(classe~.,data=wesTraining, method="rpart")
+
+predict.rpart<-predict(modfit.rpart, newdata=wesTesting[,-57])
+conf.rpart<-confusionMatrix(predict.rpart, wesTesting$classe)
+conf.rpart$overall[1]
+```
+Unfortunately, our accuracy is very low, only ~47%.
+
+####Random Forest
+Since our decision tree accuracy was so poor, we will next try a random forest model. 
+```{r rf, message=FALSE, warning=FALSE}
+modfit.rf<-train(classe~.,data=wesTraining, method="rf", trControl=trainControl(method="cv", number=4))
+
+predict.rf<-predict(modfit.rf, newdata=wesTesting[,-57])
+conf.rf<-confusionMatrix(predict.rf, wesTesting$classe)
+conf.rf$overall[1]
+```
+The accuracy using the random forest model was much better, 99%! Let's look at the variables that our model found to be the most important, and how the accuracy changed as more predictors were included. Ultimately, our model only utilized 2 predictors, as this returned the highest accuracy.
+```{r rf analysis}
+varImp(modfit.rf)
+plot(modfit.rf)
+```
+Given the high level of accuracy from our random forest model, we would predict that our out of sample error is 0.08%, or (1-.9991843)*100. 
+
+###Predicting on the testing set
+Finally, we will need to predict the classe variable for our testing set. 
+```{r}
+predict.test<-predict(modfit.rf, newdata = testingSet)
+predict.test
+```
+
+
